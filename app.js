@@ -1,10 +1,125 @@
+// app.js
+
+// --- Configuration ---
+const WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast';
+const GEO_API_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+
+// --- State ---
+let currentUnit = 'metric'; // 'metric' (C) or 'imperial' (F)
+let currentCity = localStorage.getItem('lastCity') || 'Berlin';
+let currentLat = localStorage.getItem('lastLat') || 52.52;
+let currentLon = localStorage.getItem('lastLon') || 13.41;
+let weatherData = null;
+
+// --- DOM Elements ---
+const els = {
+    citySearch: document.getElementById('city-search'),
+    searchResults: document.getElementById('search-results'),
+    unitToggle: document.getElementById('unit-toggle'),
+    cityName: document.getElementById('city-name'),
+    currentDate: document.getElementById('current-date'),
+    mainTemp: document.getElementById('main-temp'),
+    weatherDesc: document.getElementById('weather-desc'),
+    feelsLike: document.getElementById('feels-like'),
+    humidity: document.getElementById('humidity'),
+    windSpeed: document.getElementById('wind-speed'),
+    uvIndex: document.getElementById('uv-index'),
+    hourlyContainer: document.getElementById('hourly-container'),
+    dailyContainer: document.getElementById('daily-container'),
+    auraCanvas: document.getElementById('aura-canvas'),
+    body: document.body,
+    favoritesList: document.getElementById('favorites-list')
+};
+
+// --- Initialization ---
+function init() {
+    setupEventListeners();
+    initAura();
+    renderFavorites();
+    fetchWeather(currentLat, currentLon, currentCity);
+}
+
+// --- Event Listeners ---
+function setupEventListeners() {
+    // Search
+    els.citySearch.addEventListener('focus', () => els.body.classList.add('search-focused'));
+    els.citySearch.addEventListener('blur', () => setTimeout(() => els.body.classList.remove('search-focused'), 200));
+
+    let debounceTimer;
+    els.citySearch.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => handleSearch(e.target.value), 500);
+    });
+
+    // Unit Toggle
+    els.unitToggle.addEventListener('click', toggleUnits);
+}
+
+// --- API Calls ---
+async function fetchWeather(lat, lon, name) {
+    try {
+        currentCity = name;
+        currentLat = lat;
+        currentLon = lon;
+        localStorage.setItem('lastCity', currentCity);
+        localStorage.setItem('lastLat', currentLat);
+        localStorage.setItem('lastLon', currentLon);
+
+        const units = currentUnit === 'metric' ? 'celsius' : 'fahrenheit';
+        const windUnits = currentUnit === 'metric' ? 'kmh' : 'mph';
+
+        const url = `${WEATHER_API_URL}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=${units}&wind_speed_unit=${windUnits}&timezone=auto`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Weather fetch failed');
+
+        weatherData = await res.json();
+        renderApp();
+
+    } catch (error) {
+        console.error('Error fetching weather:', error);
+        alert('Failed to fetch weather data.');
+    }
+}
+
+async function handleSearch(query) {
+    if (query.length < 3) {
+        els.searchResults.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${GEO_API_URL}?name=${query}&count=5&language=en&format=json`);
+        const data = await res.json();
+
+        els.searchResults.innerHTML = '';
+        if (data.results && data.results.length) {
+            els.searchResults.classList.remove('hidden');
+            data.results.forEach(city => {
+                const div = document.createElement('div');
+                div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
+                div.textContent = `${city.name}, ${city.country || ''} ${city.admin1 ? '(' + city.admin1 + ')' : ''}`;
+                div.onclick = () => {
+                    els.citySearch.value = '';
+                    els.searchResults.classList.add('hidden');
+                    fetchWeather(city.latitude, city.longitude, city.name);
+                };
+                els.searchResults.appendChild(div);
+            });
+        }
+    } catch (e) {
+        console.error('Search error', e);
+    }
+}
+
+// --- Rendering ---
 function renderApp() {
     if (!weatherData) return;
 
     renderCurrent();
     renderHourly();
     renderDaily();
-    updateAura(weatherData.current.weather[0].main);
+    updateAura(getWeatherCondition(weatherData.current.weather_code));
 }
 
 function renderCurrent() {
@@ -13,47 +128,55 @@ function renderCurrent() {
     els.currentDate.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
     // Animate Number
-    animateValue(els.mainTemp, parseInt(els.mainTemp.textContent) || 0, Math.round(current.temp), 1000);
+    animateValue(els.mainTemp, parseInt(els.mainTemp.textContent) || 0, Math.round(current.temperature_2m), 1000);
 
-    els.weatherDesc.textContent = current.weather[0].description;
-    els.feelsLike.textContent = `${Math.round(current.feels_like)}°`;
-    els.humidity.textContent = `${current.humidity}%`;
-    els.windSpeed.textContent = `${Math.round(current.wind_speed)} ${currentUnit === 'metric' ? 'km/h' : 'mph'}`;
-    els.uvIndex.textContent = current.uvi;
+    els.weatherDesc.textContent = getWeatherDescription(current.weather_code);
+    els.feelsLike.textContent = `${Math.round(current.apparent_temperature)}°`;
+    els.humidity.textContent = `${current.relative_humidity_2m}%`;
+    els.windSpeed.textContent = `${Math.round(current.wind_speed_10m)} ${currentUnit === 'metric' ? 'km/h' : 'mph'}`;
+    els.uvIndex.textContent = '-'; // Open-Meteo UV requires separate call, skipping for simplicity or adding later
     els.unitToggle.textContent = currentUnit === 'metric' ? '°C' : '°F';
 }
 
 function renderHourly() {
     els.hourlyContainer.innerHTML = '';
-    const hours = weatherData.hourly.slice(0, 24);
+    const hourly = weatherData.hourly;
+    // Get next 24 hours starting from now
+    const currentHourIndex = new Date().getHours();
 
-    hours.forEach(hour => {
-        const date = new Date(hour.dt * 1000);
+    for (let i = 0; i < 24; i++) {
+        const index = currentHourIndex + i;
+        if (index >= hourly.time.length) break;
+
+        const timeStr = hourly.time[index];
+        const date = new Date(timeStr);
         const time = date.getHours() + ':00';
-        const temp = Math.round(hour.temp);
+        const temp = Math.round(hourly.temperature_2m[index]);
 
         const el = document.createElement('div');
         el.className = 'flex flex-col items-center gap-2 min-w-[60px]';
         el.innerHTML = `
             <span class="text-sm text-white/60">${time}</span>
             <div class="w-full h-24 flex items-end justify-center relative">
-                <div class="w-2 bg-white/20 rounded-t-full" style="height: ${Math.min(temp * 2, 100)}%"></div>
+                <div class="w-2 bg-white/20 rounded-t-full" style="height: ${Math.min(temp * 2 + 20, 100)}%"></div>
             </div>
             <span class="font-bold">${temp}°</span>
         `;
         els.hourlyContainer.appendChild(el);
-    });
+    }
 }
 
 function renderDaily() {
     els.dailyContainer.innerHTML = '';
-    const days = weatherData.daily.slice(0, 7);
+    const daily = weatherData.daily;
 
-    days.forEach(day => {
-        const date = new Date(day.dt * 1000);
+    for (let i = 0; i < 7; i++) {
+        if (!daily.time[i]) break;
+
+        const date = new Date(daily.time[i]);
         const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-        const min = Math.round(day.temp.min);
-        const max = Math.round(day.temp.max);
+        const min = Math.round(daily.temperature_2m_min[i]);
+        const max = Math.round(daily.temperature_2m_max[i]);
 
         const el = document.createElement('div');
         el.className = 'daily-row flex justify-between items-center p-4 rounded-xl cursor-default';
@@ -68,7 +191,7 @@ function renderDaily() {
             </div>
         `;
         els.dailyContainer.appendChild(el);
-    });
+    }
 }
 
 // --- Helpers ---
@@ -89,72 +212,11 @@ function animateValue(obj, start, end, duration) {
 
 function toggleUnits() {
     currentUnit = currentUnit === 'metric' ? 'imperial' : 'metric';
-    fetchWeather(currentCity);
-}
-
-async function handleSearch(query) {
-    if (query.length < 3) {
-        els.searchResults.classList.add('hidden');
-        return;
-    }
-
-    if (isDemoMode) {
-        // Mock search results for demo
-        const mockCities = [
-            { name: 'London', country: 'GB' },
-            { name: 'New York', country: 'US' },
-            { name: 'Tokyo', country: 'JP' },
-            { name: 'Paris', country: 'FR' },
-            { name: 'Sydney', country: 'AU' }
-        ].filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
-
-        els.searchResults.innerHTML = '';
-        if (mockCities.length) {
-            els.searchResults.classList.remove('hidden');
-            mockCities.forEach(city => {
-                const div = document.createElement('div');
-                div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
-                div.textContent = `${city.name}, ${city.country}`;
-                div.onclick = () => {
-                    currentCity = city.name;
-                    els.citySearch.value = '';
-                    els.searchResults.classList.add('hidden');
-                    fetchWeather(currentCity);
-                };
-                els.searchResults.appendChild(div);
-            });
-        }
-        return;
-    }
-
-    try {
-        const res = await fetch(`${GEO_URL}?q=${query}&limit=5&appid=${apiKey}`);
-        if (!res.ok) return;
-        const data = await res.json();
-
-        els.searchResults.innerHTML = '';
-        if (data.length) {
-            els.searchResults.classList.remove('hidden');
-            data.forEach(city => {
-                const div = document.createElement('div');
-                div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
-                div.textContent = `${city.name}, ${city.country}`;
-                div.onclick = () => {
-                    currentCity = city.name;
-                    els.citySearch.value = '';
-                    els.searchResults.classList.add('hidden');
-                    fetchWeather(currentCity);
-                };
-                els.searchResults.appendChild(div);
-            });
-        }
-    } catch (e) {
-        console.error('Search error', e);
-    }
+    fetchWeather(currentLat, currentLon, currentCity);
 }
 
 function renderFavorites() {
-    const faves = JSON.parse(localStorage.getItem('favorites')) || ['London', 'Tokyo', 'New York'];
+    const faves = JSON.parse(localStorage.getItem('favorites')) || [];
 
     els.favoritesList.innerHTML = '';
 
@@ -166,18 +228,17 @@ function renderFavorites() {
     addBtn.onclick = addToFavorites;
     els.favoritesList.appendChild(addBtn);
 
-    faves.forEach(city => {
+    faves.forEach(item => {
         const btn = document.createElement('button');
         btn.className = 'text-xs bg-glass border border-glass-border px-3 py-1 rounded-full hover:bg-white/20 transition-colors';
-        btn.textContent = city;
+        btn.textContent = item.name;
         btn.onclick = () => {
-            currentCity = city;
-            fetchWeather(city);
+            fetchWeather(item.lat, item.lon, item.name);
         };
         // Right click to remove
         btn.oncontextmenu = (e) => {
             e.preventDefault();
-            removeFromFavorites(city);
+            removeFromFavorites(item.name);
         };
         els.favoritesList.appendChild(btn);
     });
@@ -185,19 +246,47 @@ function renderFavorites() {
 
 function addToFavorites() {
     let faves = JSON.parse(localStorage.getItem('favorites')) || [];
-    if (!faves.includes(currentCity)) {
-        if (faves.length >= 5) faves.shift(); // Keep max 5
-        faves.push(currentCity);
+    // Check if already exists
+    if (!faves.some(f => f.name === currentCity)) {
+        if (faves.length >= 5) faves.shift();
+        faves.push({ name: currentCity, lat: currentLat, lon: currentLon });
         localStorage.setItem('favorites', JSON.stringify(faves));
         renderFavorites();
     }
 }
 
-function removeFromFavorites(city) {
+function removeFromFavorites(cityName) {
     let faves = JSON.parse(localStorage.getItem('favorites')) || [];
-    faves = faves.filter(c => c !== city);
+    faves = faves.filter(c => c.name !== cityName);
     localStorage.setItem('favorites', JSON.stringify(faves));
     renderFavorites();
+}
+
+// --- WMO Code Mapping ---
+function getWeatherDescription(code) {
+    const codes = {
+        0: 'Clear sky',
+        1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog',
+        51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+        61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+        71: 'Slight snow', 73: 'Moderate snow', 75: 'Heavy snow',
+        77: 'Snow grains',
+        80: 'Slight rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+        85: 'Slight snow showers', 86: 'Heavy snow showers',
+        95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with heavy hail'
+    };
+    return codes[code] || 'Unknown';
+}
+
+function getWeatherCondition(code) {
+    // Maps WMO code to Aura condition
+    if (code === 0 || code === 1) return 'Clear';
+    if (code === 2 || code === 3 || code === 45 || code === 48) return 'Clouds';
+    if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return 'Rain';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Snow';
+    if ([95, 96, 99].includes(code)) return 'Thunderstorm';
+    return 'default';
 }
 
 // --- Aura Effect (Canvas) ---
@@ -221,7 +310,7 @@ function initAura() {
         reset() {
             this.x = Math.random() * els.auraCanvas.width;
             this.y = Math.random() * els.auraCanvas.height;
-            this.size = Math.random() * 150 + 50; // Large, soft blobs
+            this.size = Math.random() * 150 + 50;
             this.speedX = (Math.random() - 0.5) * 0.2;
             this.speedY = (Math.random() - 0.5) * 0.2;
             this.alpha = Math.random() * 0.1;
@@ -230,13 +319,11 @@ function initAura() {
         getColor() {
             const colors = {
                 'default': ['#ffffff', '#888888'],
-                'Clear': ['#FFD700', '#FFA500', '#00BFFF'], // Sun/Blue
-                'Clouds': ['#B0C4DE', '#778899', '#F0F8FF'], // Grey/Blue
-                'Rain': ['#00008B', '#4B0082', '#00BFFF'], // Deep Blue/Purple
-                'Snow': ['#FFFFFF', '#F0FFFF', '#E0FFFF'], // White/Cyan
-                'Thunderstorm': ['#4B0082', '#800080', '#FFD700'], // Purple/Gold
-                'Drizzle': ['#ADD8E6', '#87CEEB'],
-                'Mist': ['#D3D3D3', '#C0C0C0']
+                'Clear': ['#FFD700', '#FFA500', '#00BFFF'],
+                'Clouds': ['#B0C4DE', '#778899', '#F0F8FF'],
+                'Rain': ['#00008B', '#4B0082', '#00BFFF'],
+                'Snow': ['#FFFFFF', '#F0FFFF', '#E0FFFF'],
+                'Thunderstorm': ['#4B0082', '#800080', '#FFD700']
             };
             const palette = colors[auraMode] || colors['default'];
             return palette[Math.floor(Math.random() * palette.length)];
@@ -244,8 +331,6 @@ function initAura() {
         update() {
             this.x += this.speedX;
             this.y += this.speedY;
-
-            // Wrap around
             if (this.x < -this.size) this.x = els.auraCanvas.width + this.size;
             if (this.x > els.auraCanvas.width + this.size) this.x = -this.size;
             if (this.y < -this.size) this.y = els.auraCanvas.height + this.size;
@@ -255,7 +340,6 @@ function initAura() {
             const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
             gradient.addColorStop(0, this.color);
             gradient.addColorStop(1, 'rgba(0,0,0,0)');
-
             ctx.globalAlpha = this.alpha;
             ctx.fillStyle = gradient;
             ctx.beginPath();
@@ -265,59 +349,28 @@ function initAura() {
         }
     }
 
-    // Create fewer, larger particles for "Aura" feel
     auraParticles = [];
     for (let i = 0; i < 20; i++) auraParticles.push(new Particle());
 
     function animate() {
         ctx.clearRect(0, 0, els.auraCanvas.width, els.auraCanvas.height);
-        // Composite operation for blending
         ctx.globalCompositeOperation = 'screen';
-
         auraParticles.forEach(p => {
             p.update();
             p.draw();
         });
-
-        // Add subtle noise overlay
-        // (Optional: could be performance heavy, skipping for now to ensure 60fps)
-
         requestAnimationFrame(animate);
     }
     animate();
 }
 
 function updateAura(condition) {
+    if (auraMode === condition) return;
     console.log('Updating Aura for:', condition);
     auraMode = condition;
-    // Gently reset particles to new colors over time or immediately
     auraParticles.forEach(p => {
         p.color = p.getColor();
     });
-}
-
-// --- Mock Data for Demo ---
-function simulateData(city) {
-    console.log('Simulating data for', city);
-    weatherData = {
-        current: {
-            temp: 22,
-            feels_like: 24,
-            humidity: 60,
-            wind_speed: 12,
-            uvi: 5,
-            weather: [{ main: 'Clear', description: 'clear sky' }]
-        },
-        hourly: Array(24).fill(0).map((_, i) => ({
-            dt: Date.now() / 1000 + i * 3600,
-            temp: 20 + Math.random() * 5
-        })),
-        daily: Array(7).fill(0).map((_, i) => ({
-            dt: Date.now() / 1000 + i * 86400,
-            temp: { min: 15, max: 25 }
-        }))
-    };
-    renderApp();
 }
 
 // Start
