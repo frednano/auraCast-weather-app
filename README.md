@@ -10,6 +10,7 @@ AuraCast 2.0 is a sensational, immersive weather application that transforms wea
 -   **Neo-Brutalism UI**: High-contrast, glassmorphism-enhanced design with bold typography.
 -   **Sensational Interactions**: Smooth, hardware-accelerated micro-animations.
 -   **Global Weather Data**: Powered by **Open-Meteo** (no API key required).
+-   **Automatic Geolocation**: Instantly finds your local weather on startup.
 -   **User Controls**: City search, Unit toggle (°C/°F), and Favorites system.
 
 ## 🚀 Getting Started

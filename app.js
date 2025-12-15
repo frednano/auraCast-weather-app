@@ -36,7 +36,42 @@ function init() {
     setupEventListeners();
     initAura();
     renderFavorites();
-    fetchWeather(currentLat, currentLon, currentCity);
+
+    // Try to get user location first
+    getUserLocation();
+}
+
+// --- Geolocation ---
+function getUserLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude } = position.coords;
+                // Try to get city name
+                const cityName = await getCityNameFromCoords(latitude, longitude);
+                fetchWeather(latitude, longitude, cityName);
+            },
+            (error) => {
+                console.warn('Geolocation denied or error:', error);
+                // Fallback to last saved or default
+                fetchWeather(currentLat, currentLon, currentCity);
+            }
+        );
+    } else {
+        // Fallback if not supported
+        fetchWeather(currentLat, currentLon, currentCity);
+    }
+}
+
+async function getCityNameFromCoords(lat, lon) {
+    try {
+        const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+        const data = await res.json();
+        return data.city || data.locality || 'Current Location';
+    } catch (e) {
+        console.error('Reverse geocoding failed', e);
+        return 'Current Location';
+    }
 }
 
 // --- Event Listeners ---
