@@ -127,6 +127,12 @@
     </div>
 
     <script src="app.js"></script>
+    <script>
+        // Vercel Web Analytics
+        import('https://cdn.vercel-analytics.com/v1').then(analytics => {
+            analytics.inject();
+        }).catch(err => console.error('Failed to load Vercel Analytics:', err));
+    </script>
 </body>
 
 </html>
