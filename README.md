@@ -16,22 +16,22 @@ AuraCast 2.0 is a sensational, immersive weather application that transforms wea
 
 ### Prerequisites
 
-You need an API Key from [OpenWeatherMap](https://openweathermap.org/).
-1.  Sign up for a free account.
-2.  Subscribe to the "One Call API 3.0" (1000 calls/day free).
-3.  Get your API Key.
+You need an API Key from [OpenWeatherMap](https://openweathermap.org/) (One Call API 3.0).
 
-### Installation
+### Installation & Setup
 
-1.  Clone this repository:
-    ```bash
-    git clone https://github.com/yourusername/auracast-2.0.git
-    ```
-2.  Open `app.js` and replace the placeholder key:
-    ```javascript
-    const API_KEY = 'YOUR_ACTUAL_API_KEY_HERE';
-    ```
-3.  Open `index.html` in your browser.
+1.  **Deploy Immediately**: You can deploy this code as-is.
+2.  **First Launch**:
+    *   When you open the app, you will see a **Welcome Screen**.
+    *   **Option A**: Paste your OpenWeatherMap API Key to get live data.
+    *   **Option B**: Click "Enter Demo Mode" to explore the UI with simulated data.
+3.  **API Key Storage**: Your key is stored safely in your browser's Local Storage, so you don't need to edit the code.
+
+### Manual Code Setup (Optional)
+
+If you prefer to hardcode the key:
+1.  Open `app.js`.
+2.  Replace `const DEFAULT_API_KEY = 'YOUR_API_KEY_HERE';` with your key.
 
 ## 🛠️ Built With
 

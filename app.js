@@ -1,93 +1,3 @@
-// app.js
-
-// --- Configuration ---
-const API_KEY = 'YOUR_API_KEY_HERE'; // User to replace this
-const BASE_URL = 'https://api.openweathermap.org/data/3.0/onecall';
-const GEO_URL = 'https://api.openweathermap.org/geo/1.0/direct';
-
-// --- State ---
-let currentUnit = 'metric'; // 'metric' (C) or 'imperial' (F)
-let currentCity = 'London'; // Default
-let weatherData = null;
-
-// --- DOM Elements ---
-const els = {
-    citySearch: document.getElementById('city-search'),
-    searchResults: document.getElementById('search-results'),
-    unitToggle: document.getElementById('unit-toggle'),
-    cityName: document.getElementById('city-name'),
-    currentDate: document.getElementById('current-date'),
-    mainTemp: document.getElementById('main-temp'),
-    weatherDesc: document.getElementById('weather-desc'),
-    feelsLike: document.getElementById('feels-like'),
-    humidity: document.getElementById('humidity'),
-    windSpeed: document.getElementById('wind-speed'),
-    uvIndex: document.getElementById('uv-index'),
-    hourlyContainer: document.getElementById('hourly-container'),
-    dailyContainer: document.getElementById('daily-container'),
-    auraCanvas: document.getElementById('aura-canvas'),
-    body: document.body,
-    favoritesList: document.getElementById('favorites-list')
-};
-
-// --- Initialization ---
-function init() {
-    setupEventListeners();
-    initAura();
-    // Try to load last city or default
-    const savedCity = localStorage.getItem('lastCity');
-    if (savedCity) currentCity = savedCity;
-    fetchWeather(currentCity);
-    renderFavorites();
-}
-
-// --- Event Listeners ---
-function setupEventListeners() {
-    // Search
-    els.citySearch.addEventListener('focus', () => els.body.classList.add('search-focused'));
-    els.citySearch.addEventListener('blur', () => setTimeout(() => els.body.classList.remove('search-focused'), 200));
-
-    let debounceTimer;
-    els.citySearch.addEventListener('input', (e) => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => handleSearch(e.target.value), 500);
-    });
-
-    // Unit Toggle
-    els.unitToggle.addEventListener('click', toggleUnits);
-}
-
-// --- API Calls ---
-async function fetchWeather(city) {
-    try {
-        // 1. Get Coords
-        const geoRes = await fetch(`${GEO_URL}?q=${city}&limit=1&appid=${API_KEY}`);
-        const geoData = await geoRes.json();
-
-        if (!geoData.length) {
-            alert('City not found');
-            return;
-        }
-
-        const { lat, lon, name } = geoData[0];
-        currentCity = name;
-        localStorage.setItem('lastCity', currentCity);
-
-        // 2. Get Weather
-        const weatherRes = await fetch(`${BASE_URL}?lat=${lat}&lon=${lon}&units=${currentUnit}&exclude=minutely,alerts&appid=${API_KEY}`);
-        weatherData = await weatherRes.json();
-
-        renderApp();
-    } catch (error) {
-        console.error('Error fetching weather:', error);
-        // Fallback for demo if no API key
-        if (API_KEY === 'YOUR_API_KEY_HERE') {
-            simulateData(city);
-        }
-    }
-}
-
-// --- Rendering ---
 function renderApp() {
     if (!weatherData) return;
 
@@ -188,24 +98,58 @@ async function handleSearch(query) {
         return;
     }
 
-    const res = await fetch(`${GEO_URL}?q=${query}&limit=5&appid=${API_KEY}`);
-    const data = await res.json();
+    if (isDemoMode) {
+        // Mock search results for demo
+        const mockCities = [
+            { name: 'London', country: 'GB' },
+            { name: 'New York', country: 'US' },
+            { name: 'Tokyo', country: 'JP' },
+            { name: 'Paris', country: 'FR' },
+            { name: 'Sydney', country: 'AU' }
+        ].filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
 
-    els.searchResults.innerHTML = '';
-    if (data.length) {
-        els.searchResults.classList.remove('hidden');
-        data.forEach(city => {
-            const div = document.createElement('div');
-            div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
-            div.textContent = `${city.name}, ${city.country}`;
-            div.onclick = () => {
-                currentCity = city.name;
-                els.citySearch.value = '';
-                els.searchResults.classList.add('hidden');
-                fetchWeather(currentCity);
-            };
-            els.searchResults.appendChild(div);
-        });
+        els.searchResults.innerHTML = '';
+        if (mockCities.length) {
+            els.searchResults.classList.remove('hidden');
+            mockCities.forEach(city => {
+                const div = document.createElement('div');
+                div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
+                div.textContent = `${city.name}, ${city.country}`;
+                div.onclick = () => {
+                    currentCity = city.name;
+                    els.citySearch.value = '';
+                    els.searchResults.classList.add('hidden');
+                    fetchWeather(currentCity);
+                };
+                els.searchResults.appendChild(div);
+            });
+        }
+        return;
+    }
+
+    try {
+        const res = await fetch(`${GEO_URL}?q=${query}&limit=5&appid=${apiKey}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        els.searchResults.innerHTML = '';
+        if (data.length) {
+            els.searchResults.classList.remove('hidden');
+            data.forEach(city => {
+                const div = document.createElement('div');
+                div.className = 'p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-glass-border last:border-0';
+                div.textContent = `${city.name}, ${city.country}`;
+                div.onclick = () => {
+                    currentCity = city.name;
+                    els.citySearch.value = '';
+                    els.searchResults.classList.add('hidden');
+                    fetchWeather(currentCity);
+                };
+                els.searchResults.appendChild(div);
+            });
+        }
+    } catch (e) {
+        console.error('Search error', e);
     }
 }
 
